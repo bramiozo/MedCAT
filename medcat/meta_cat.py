@@ -84,6 +84,12 @@ class MetaCAT(PipeRunner):
         if config.model['model_name'] == 'lstm':
             from medcat.utils.meta_cat.models import LSTM
             model = LSTM(embeddings, config)
+        elif config.model['model_name'] == 'roberta':
+            from medcat.utils.meta_cat.models import RoBERTaForMetaAnnotation
+            model = RoBERTaForMetaAnnotation(config)
+        elif config.model['model_name'] == 'bert':
+            from medcat.utils.meta_cat.models import BertForMetaAnnotation
+            model = BertForMetaAnnotation(config)
         else:
             raise ValueError("Unknown model name %s" % config.model['model_name'])
 
@@ -342,6 +348,9 @@ class MetaCAT(PipeRunner):
         elif config.general['tokenizer_name'] == 'bert-tokenizer':
             from medcat.tokenizers.meta_cat_tokenizers import TokenizerWrapperBERT
             tokenizer = TokenizerWrapperBERT.load(save_dir_path)
+        elif config.general['tokenizer_name'] == 'roberta-tokenizer':
+            from medcat.tokenizers.meta_cat_tokenizers import TokenizerWrapperRoBERTa
+            tokenizer = TokenizerWrapperRoBERTa.load(save_dir_path)
 
         # Create meta_cat
         meta_cat = cls(tokenizer=tokenizer, embeddings=None, config=config)

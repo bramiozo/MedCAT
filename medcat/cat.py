@@ -375,7 +375,8 @@ class CAT(object):
             vocab = None
 
         # Find meta models in the model_pack
-        trf_paths = [os.path.join(model_pack_path, path) for path in os.listdir(model_pack_path) if path.startswith('trf_')] if load_addl_ner else []
+        trf_paths = [os.path.join(model_pack_path, path) 
+                     for path in os.listdir(model_pack_path) if path.startswith('trf_')] if load_addl_ner else []
         addl_ner = []
         for trf_path in trf_paths:
             trf = TransformersNER.load(save_dir_path=trf_path)
@@ -383,7 +384,8 @@ class CAT(object):
             addl_ner.append(trf)
 
         # Find meta models in the model_pack
-        meta_paths = [os.path.join(model_pack_path, path) for path in os.listdir(model_pack_path) if path.startswith('meta_')] if load_meta_models else []
+        meta_paths = [os.path.join(model_pack_path, path) 
+                      for path in os.listdir(model_pack_path) if path.startswith('meta_')] if load_meta_models else []
         meta_cats = []
         for meta_path in meta_paths:
             meta_cats.append(MetaCAT.load(save_dir_path=meta_path,
@@ -821,15 +823,24 @@ class CAT(object):
             \*\*other:
                 Refer to medcat.cat.cdb.CDB.add_concept
         """
-        names = prepare_name(name, self.pipe.spacy_nlp, {}, self.config)
+        names = prepare_name(name, self.pipe.spacy_nlp, {}, 
+                            self.config)
         # Only if not negative, otherwise do not add the new name if in fact it should not be detected
         if do_add_concept and not negative:
-            self.cdb.add_concept(cui=cui, names=names, ontologies=ontologies, name_status=name_status, type_ids=type_ids, description=description,
+            self.cdb.add_concept(cui=cui, names=names, 
+                                 ontologies=ontologies, 
+                                 name_status=name_status, 
+                                 type_ids=type_ids, 
+                                 description=description,
                                  full_build=full_build)
 
         if spacy_entity is not None and spacy_doc is not None:
             # Train Linking
-            self.linker.context_model.train(cui=cui, entity=spacy_entity, doc=spacy_doc, negative=negative, names=names)  # type: ignore
+            self.linker.context_model.train(cui=cui, 
+                                            entity=spacy_entity, 
+                                            doc=spacy_doc, 
+                                            negative=negative, 
+                                            names=names)  # type: ignore
 
             if not negative and devalue_others:
                 # Find all cuis
