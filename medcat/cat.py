@@ -271,6 +271,10 @@ class CAT(object):
         cdb_path = os.path.join(save_dir_path, "cdb.dat")
         self.cdb.save(cdb_path, json_path)
 
+        # Save the config
+        config_path = os.path.join(save_dir_path, "config.json")
+        self.cdb.config.save(config_path)
+
         # Save the Vocab
         vocab_path = os.path.join(save_dir_path, "vocab.dat")
         if self.vocab is not None:
@@ -361,6 +365,10 @@ class CAT(object):
         json_path = model_pack_path if has_jsons else None
         logger.info('Loading model pack with %s', 'JSON format' if json_path else 'dill format')
         cdb = CDB.load(cdb_path, json_path)
+
+        # load config
+        config_path = os.path.join(model_pack_path, "config.json")
+        cdb.load_config(config_path)
 
         # TODO load addl_ner
 
@@ -492,7 +500,8 @@ class CAT(object):
         fp_docs: Set = set()
         fn_docs: Set = set()
 
-        local_filters = self.config.linking.filters.copy_of()
+        orig_filters = self.config.linking.filters.copy_of()
+        local_filters = self.config.linking.filters
         for pind, project in tqdm(enumerate(data['projects']), desc="Stats project", total=len(data['projects']), leave=False):
             local_filters.cuis = set()
 
@@ -536,10 +545,14 @@ class CAT(object):
                             anns_norm.append((ann['start'], cui))
                             anns_examples.append({"text": doc['text'][max(0, ann['start']-60):ann['end']+60],
                                                   "cui": cui,
+                                                  "start": ann['start'],
+                                                  "end": ann['end'],
                                                   "source value": ann['value'],
                                                   "acc": 1,
                                                   "project name": project.get('name'),
-                                                  "document name": doc.get('name')})
+                                                  "document name": doc.get('name'),
+                                                  "project id": project.get('id'),
+                                                  "document id": doc.get('id')})
                         elif ann.get('validated', True) and (ann.get('killed', False) or ann.get('deleted', False)):
                             anns_norm_neg.append((ann['start'], cui))
 
@@ -558,11 +571,14 @@ class CAT(object):
                     p_anns_norm.append((ann.start_char, cui))
                     p_anns_examples.append({"text": doc['text'][max(0, ann.start_char-60):ann.end_char+60],
                                             "cui": cui,
+                                            "start": ann.start_char,
+                                            "end": ann.end_char,
                                             "source value": ann.text,
                                             "acc": float(ann._.context_similarity),
                                             "project name": project.get('name'),
-                                            "document name": doc.get('name')})
-
+                                            "document name": doc.get('name'),
+                                            "project id": project.get('id'),
+                                            "document id": doc.get('id')})
                 for iann, ann in enumerate(p_anns_norm):
                     cui = ann[1]
                     if ann in anns_norm:
@@ -639,6 +655,8 @@ class CAT(object):
 
         except Exception:
             traceback.print_exc()
+
+        self.config.linking.filters = orig_filters
 
         return fps, fns, tps, cui_prec, cui_rec, cui_f1, cui_counts, examples
 
@@ -1037,7 +1055,13 @@ class CAT(object):
         """
         checkpoint = self._init_ckpts(is_resumed, checkpoint)
 
-        local_filters = self.config.linking.filters.copy_of()
+        # the config.linking.filters stuff is used directly in
+        # medcat.linking.context_based_linker and medcat.linking.vector_context_model
+        # as such, they need to be kept up to date with per-project filters
+        # However, the original state needs to be kept track of
+        # so that it can be restored after training
+        orig_filters = self.config.linking.filters.copy_of()
+        local_filters = self.config.linking.filters
 
         fp = fn = tp = p = r = f1 = examples = {}
 
@@ -1098,7 +1122,7 @@ class CAT(object):
                 if retain_filters and extra_cui_filter and not retain_extra_cui_filter:
                     # adding project filters without extra_cui_filters
                     self._set_project_filters(local_filters, project, set(), use_filters)
-                    self.config.linking.filters.merge_with(local_filters)
+                    orig_filters.merge_with(local_filters)
                     # adding extra_cui_filters, but NOT project filters
                     self._set_project_filters(local_filters, project, extra_cui_filter, False)
                     # refrain from doing it again for subsequent epochs
@@ -1144,7 +1168,7 @@ class CAT(object):
                         checkpoint.save(self.cdb, latest_trained_step)
                 # if retaining MCT filters AND (if they exist) extra_cui_filters
                 if retain_filters:
-                    self.config.linking.filters.merge_with(local_filters)
+                    orig_filters.merge_with(local_filters)
                     # refrain from doing it again for subsequent epochs
                     retain_filters = False
 
@@ -1165,6 +1189,9 @@ class CAT(object):
                                                                                use_overlaps=use_overlaps,
                                                                                use_groups=use_groups,
                                                                                extra_cui_filter=extra_cui_filter)
+
+        # reset the state of filters
+        self.config.linking.filters = orig_filters
 
         return fp, fn, tp, p, r, f1, cui_counts, examples
 
@@ -1324,7 +1351,7 @@ class CAT(object):
                         nproc: int = 2,
                         batch_size_chars: int = 5000 * 1000,
                         only_cui: bool = False,
-                        addl_info: List[str] = [],
+                        addl_info: List[str] = ['cui2icd10', 'cui2ontologies', 'cui2snomed'],
                         separate_nn_components: bool = True,
                         out_split_size_chars: Optional[int] = None,
                         save_dir_path: str = os.path.abspath(os.getcwd()),
@@ -1520,7 +1547,7 @@ class CAT(object):
                              nproc: Optional[int] = None,
                              batch_size: Optional[int] = None,
                              only_cui: bool = False,
-                             addl_info: List[str] = [],
+                             addl_info: List[str] = ['cui2icd10', 'cui2ontologies', 'cui2snomed'],
                              return_dict: bool = True,
                              batch_factor: int = 2) -> Union[List[Tuple], Dict]:
         """Run multiprocessing NOT FOR TRAINING
