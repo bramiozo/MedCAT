@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import datasets
 from spacy.tokens import Doc
 from datetime import datetime
 from typing import Iterable, Iterator, Optional, Dict, List, cast, Union
@@ -18,7 +19,7 @@ from medcat.datasets.data_collator import CollateAndPadNER
 
 from transformers import Trainer, AutoModelForTokenClassification, AutoTokenizer
 from transformers import pipeline, TrainingArguments
-import datasets
+from transformers.trainer_callback import TrainerCallback
 
 # It should be safe to do this always, as all other multiprocessing
 #will be finished before data comes to meta_cat
@@ -78,6 +79,10 @@ class TransformersNER(object):
 
     def create_eval_pipeline(self):
         self.ner_pipe = pipeline(model=self.model, task="ner", tokenizer=self.tokenizer.hf_tokenizer)
+        if not hasattr(self.ner_pipe.tokenizer, '_in_target_context_manager'):
+            # NOTE: this will fix the DeID model(s) created before medcat 1.9.3
+            #       though this fix may very well be unstable
+            self.ner_pipe.tokenizer._in_target_context_manager = False
         self.ner_pipe.device = self.model.device
 
     def get_hash(self):
@@ -137,7 +142,12 @@ class TransformersNER(object):
 
         return out_path
 
-    def train(self, json_path: Union[str, list, None]=None, ignore_extra_labels=False, dataset=None, meta_requirements=None):
+    def train(self,
+              json_path: Union[str, list, None]=None,
+              ignore_extra_labels=False,
+              dataset=None,
+              meta_requirements=None,
+              trainer_callbacks: Optional[List[TrainerCallback]]=None):
         """Train or continue training a model give a json_path containing a MedCATtrainer export. It will
         continue training if an existing model is loaded or start new training if the model is blank/new.
 
@@ -149,6 +159,9 @@ class TransformersNER(object):
             ignore_extra_labels:
                 Makes only sense when an existing deid model was loaded and from the new data we want to ignore
                 labels that did not exist in the old model.
+            trainer_callbacks (List[TrainerCallback]):
+                A list of trainer callbacks for collecting metrics during the training at the client side. The
+                transformers Trainer object will be passed in when each callback is called.
         """
 
         if dataset is None and json_path is not None:
@@ -193,6 +206,9 @@ class TransformersNER(object):
                 compute_metrics=lambda p: metrics(p, tokenizer=self.tokenizer, dataset=encoded_dataset['test'], verbose=self.config.general['verbose_metrics']),
                 data_collator=data_collator, # type: ignore
                 tokenizer=None)
+        if trainer_callbacks:
+            for callback in trainer_callbacks:
+                trainer.add_callback(callback(trainer))
 
         trainer.train() # type: ignore
 
